@@ -1,25 +1,26 @@
 # bramus/router
 
-[![Build Status](https://img.shields.io/travis/bramus/router.svg?style=flat-square)](http://travis-ci.org/bramus/router) ![Source](http://img.shields.io/badge/source-bramus/router-blue.svg?style=flat-square) ![Version](https://img.shields.io/packagist/v/bramus/router.svg?style=flat-square) ![Downloads](https://img.shields.io/packagist/dt/bramus/router.svg?style=flat-square) ![License](https://img.shields.io/packagist/l/bramus/router.svg?style=flat-square)
+[![Build Status](https://github.com/bramus/router/workflows/CI/badge.svg)](https://github.com/bramus/router/actions) [![Source](http://img.shields.io/badge/source-bramus/router-blue.svg?style=flat-square)](https://github.com/bramus/router) [![Version](https://img.shields.io/packagist/v/bramus/router.svg?style=flat-square)](https://packagist.org/packages/bramus/router) [![Downloads](https://img.shields.io/packagist/dt/bramus/router.svg?style=flat-square)](https://packagist.org/packages/bramus/router/stats) [![License](https://img.shields.io/packagist/l/bramus/router.svg?style=flat-square)](https://github.com/bramus/router/blob/master/LICENSE)
 
 A lightweight and simple object oriented PHP Router.
-Built by Bram(us) Van Damme - [http://www.bram.us](http://www.bram.us)
+Built by Bram(us) Van Damme _([https://www.bram.us](https://www.bram.us))_ and [Contributors](https://github.com/bramus/router/graphs/contributors)
 
 
 ## Features
 
-- Static Route Patterns
-- Dynamic Route Patterns
-- Optional Route Subpatterns
 - Supports `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH` and `HEAD` request methods
-- Supports `X-HTTP-Method-Override` header
-- Subrouting
-- Allowance of Class@Method calls 
-- Custom 404 handling
-- Before Route Middlewares
-- Before Router Middlewares
-- After Router Middleware (Finish Callback)
-- Works fine in subfolders
+- [Routing shorthands such as `get()`, `post()`, `put()`, …](#routing-shorthands)
+- [Static Route Patterns](#route-patterns)
+- Dynamic Route Patterns: [Dynamic PCRE-based Route Patterns](#dynamic-pcre-based-route-patterns) or [Dynamic Placeholder-based Route Patterns](#dynamic-placeholder-based-route-patterns)
+- [Optional Route Subpatterns](#optional-route-subpatterns)
+- [Supports `X-HTTP-Method-Override` header](#overriding-the-request-method)
+- [Subrouting / Mounting Routes](#subrouting--mounting-routes)
+- [Allowance of `Class@Method` calls](#classmethod-calls)
+- [Custom 404 handling](#custom-404)
+- [Before Route Middlewares](#before-route-middlewares)
+- [Before Router Middlewares / Before App Middlewares](#before-router-middlewares)
+- [After Router Middleware / After App Middleware (Finish Callback)](#after-router-middleware--run-callback)
+- [Works fine in subfolders](#subfolder-support)
 
 
 
@@ -35,16 +36,16 @@ Built by Bram(us) Van Damme - [http://www.bram.us](http://www.bram.us)
 Installation is possible using Composer
 
 ```
-composer require bramus/router ~1.0
+composer require bramus/router ~1.5
 ```
 
 
 
 ## Demo
 
-A demo is included in the `demo` subfolder. Serve it using your favorite web server, or using PHP 5.4's built-in server by executing `php -S localhost:8080` on the shell. A `.htaccess` for use with Apache is included.
+A demo is included in the `demo` subfolder. Serve it using your favorite web server, or using PHP 5.4+'s built-in server by executing `php -S localhost:8080` on the shell. A `.htaccess` for use with Apache is included.
 
-
+Additionally a demo of a mutilingual router is also included. This can be found in the `demo-multilang` subfolder and can be ran in the same manner as the normal demo.
 
 ## Usage
 
@@ -73,9 +74,11 @@ Hook __routes__ (a combination of one or more HTTP methods and a pattern) using 
 $router->match('GET|POST', 'pattern', function() { … });
 ```
 
-`bramus/router` supports `GET`, `POST`, `PUT`, `DELETE`, and `OPTIONS` HTTP request methods. Pass in a single request method, or multiple request methods separated by `|`.
+`bramus/router` supports `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD` _(see [note](#a-note-on-making-head-requests))_, and `OPTIONS` HTTP request methods. Pass in a single request method, or multiple request methods separated by `|`.
 
-When a route matches, the attached __route handling function__ will be executed. The route handling function must be a [callable](http://php.net/manual/en/language.types.callable.php). Only the first route matched will be handled. When no matching route is found, an `'HTTP/1.1 404 Not Found'` status code will be returned.
+When a route matches against the current URL (e.g. `$_SERVER['REQUEST_URI']`), the attached __route handling function__ will be executed. The route handling function must be a [callable](http://php.net/manual/en/language.types.callable.php). Only the first route matched will be handled. When no matching route is found, a 404 handler will be executed.
+
+### Routing Shorthands
 
 Shorthands for single request methods are provided:
 
@@ -88,25 +91,61 @@ $router->options('pattern', function() { /* ... */ });
 $router->patch('pattern', function() { /* ... */ });
 ```
 
+You can use this shorthand for a route that can be accessed using any method:
+
+```php
+$router->all('pattern', function() { … });
+```
+
 Note: Routes must be hooked before `$router->run();` is being called.
 
+Note: There is no shorthand for `match()` as `bramus/router` will internally re-route such requrests to their equivalent `GET` request, in order to comply with RFC2616 _(see [note](#a-note-on-making-head-requests))_.
 
 ### Route Patterns
 
-Route patterns can be static or dynamic.
-- __Static Route Patterns__ are essentially URIs, e.g. `/about`.
-- __Dynamic Route Patterns__ are Perl-compatible regular expressions (PCRE) that resemble URIs, e.g. `/movies/(\d+)`
+Route Patterns can be static or dynamic:
 
-Commonly used subpatterns within Dynamic Route Patterns are:
+- __Static Route Patterns__ contain no dynamic parts and must match exactly against the `path` part of the current URL.
+- __Dynamic Route Patterns__ contain dynamic parts that can vary per request. The varying parts are named __subpatterns__ and are defined using either Perl-compatible regular expressions (PCRE) or by using __placeholders__
+
+#### Static Route Patterns
+
+A static route pattern is a regular string representing a URI. It will be compared directly against the `path` part of the current URL.
+
+Examples:
+
+-  `/about`
+-  `/contact`
+
+Usage Examples:
+
+```php
+// This route handling function will only be executed when visiting http(s)://www.example.org/about
+$router->get('/about', function() {
+    echo 'About Page Contents';
+});
+```
+
+#### Dynamic PCRE-based Route Patterns
+
+This type of Route Patterns contain dynamic parts which can vary per request. The varying parts are named __subpatterns__ and are defined using regular expressions.
+
+Examples:
+
+- `/movies/(\d+)`
+- `/profile/(\w+)`
+
+Commonly used PCRE-based subpatterns within Dynamic Route Patterns are:
+
 - `\d+` = One or more digits (0-9)
 - `\w+` = One or more word characters (a-z 0-9 _)
 - `[a-z0-9_-]+` = One or more word characters (a-z 0-9 _) and the dash (-)
 - `.*` = Any character (including `/`), zero or more
 - `[^/]+` = Any character but `/`, one or more
 
-Note: The [PHP PCRE Cheat Sheet](https://www.cs.washington.edu/education/courses/190m/12sp/cheat-sheets/php-regex-cheat-sheet.pdf) might come in handy.
+Note: The [PHP PCRE Cheat Sheet](https://courses.cs.washington.edu/courses/cse154/15sp/cheat-sheets/php-regex-cheat-sheet.pdf) might come in handy.
 
-The __subpatterns__ defined in Dynamic Route Patterns are converted to parameters which are passed into the route handling function. Prerequisite is that these subpatterns need to be defined as __parenthesized subpatterns__, which means that they should be wrapped between parens:
+The __subpatterns__ defined in Dynamic PCRE-based Route Patterns are converted to parameters which are passed into the route handling function. Prerequisite is that these subpatterns need to be defined as __parenthesized subpatterns__, which means that they should be wrapped between parens:
 
 ```php
 // Bad
@@ -122,11 +161,36 @@ $router->get('/hello/(\w+)', function($name) {
 
 Note: The leading `/` at the very beginning of a route pattern is not mandatory, but is recommended.
 
-When multiple subpatterns are defined, they resulting __route handling parameters__ are passed into the route handling function in the order they are defined in:
+When multiple subpatterns are defined, the resulting __route handling parameters__ are passed into the route handling function in the order they are defined in:
 
 ```php
 $router->get('/movies/(\d+)/photos/(\d+)', function($movieId, $photoId) {
-    echo 'Movie #' . $movieId . ', photo #' . $photoId);
+    echo 'Movie #' . $movieId . ', photo #' . $photoId;
+});
+```
+
+#### Dynamic Placeholder-based Route Patterns
+
+This type of Route Patterns are the same as __Dynamic PCRE-based Route Patterns__, but with one difference: they don't use regexes to do the pattern matching but they use the more easy __placeholders__ instead. Placeholders are strings surrounded by curly braces, e.g. `{name}`. You don't need to add parens around placeholders.
+
+Examples:
+
+- `/movies/{id}`
+- `/profile/{username}`
+
+Placeholders are easier to use than PRCEs, but offer you less control as they internally get translated to a PRCE that matches any character (`.*`).
+
+```php
+$router->get('/movies/{movieId}/photos/{photoId}', function($movieId, $photoId) {
+    echo 'Movie #' . $movieId . ', photo #' . $photoId;
+});
+```
+
+Note: the name of the placeholder does not need to match with the name of the parameter that is passed into the route handling function:
+
+```php
+$router->get('/movies/{foo}/photos/{bar}', function($movieId, $photoId) {
+    echo 'Movie #' . $movieId . ', photo #' . $photoId;
 });
 ```
 
@@ -157,7 +221,7 @@ The code snipped above unfortunately also responds to URLs like `/blog/foo` and 
 ```php
 $router->get('/blog(/\d+(/\d+(/\d+(/[a-z0-9_-]+)?)?)?)?', function($year = null, $month = null, $day = null, $slug = null) {
     // ...
-}
+});
 ```
 
 Note: It is highly recommended to __always__ define successive optional parameters.
@@ -167,7 +231,7 @@ To make things complete use [quantifiers](http://www.php.net/manual/en/regexp.re
 ```php
 $router->get('/blog(/\d{4}(/\d{2}(/\d{2}(/[a-z0-9_-]+)?)?)?)?', function($year = null, $month = null, $day = null, $slug = null) {
     // ...
-}
+});
 ```
 
 
@@ -194,25 +258,29 @@ $router->mount('/movies', function() use ($router) {
 Nesting of subroutes is possible, just define a second `$router->mount()` in the callable that's already contained within a preceding `$router->mount()`.
 
 
-### Class@Method calls 
+### `Class@Method` calls
 
 We can route to the class action like so:
-
-```php
-$router->get('/(\d+)', 'User@showProfile');
-```
-
-When a request matches the specified route URI, the showProfile method on the User class will be executed. obviously the route parameters will be passed to the class method.
-
-And it is very important to note that we will need to specify the full class namespace.
 
 ```php
 $router->get('/(\d+)', '\App\Controllers\User@showProfile');
 ```
 
+When a request matches the specified route URI, the `showProfile` method on the `User` class will be executed. The defined route parameters will be passed to the class method.
+
+The method can be static (recommended) or non-static (not-recommended). In case of a non-static method, a new instance of the class will be created.
+
+If most/all of your handling classes are in one and the same namespace, you can set the default namespace to use on your router instance via `setNamespace()`
+
+```php
+$router->setNamespace('\App\Controllers');
+$router->get('/users/(\d+)', 'User@showProfile');
+$router->get('/cars/(\d+)', 'Car@showProfile');
+```
+
 ### Custom 404
 
-Override the default 404 handler using `$router->set404(function);`
+The default 404 handler sets a 404 status code and exits. You can override this default 404 handler by using `$router->set404(callable);`
 
 ```php
 $router->set404(function() {
@@ -221,7 +289,26 @@ $router->set404(function() {
 });
 ```
 
-The 404 will be executed when no route pattern was matched to the current URL.
+Also supported are `Class@Method` callables:
+
+```php
+$router->set404('\App\Controllers\Error@notFound');
+```
+
+The 404 handler will be executed when no route pattern was matched to the current URL.
+
+💡 You can also manually trigger the 404 handler by calling `$router->trigger404()`
+
+```php
+$router->get('/([a-z0-9-]+)', function($id) use ($router) {
+    if (!Posts::exists($id)) {
+        $router->trigger404();
+        return;
+    }
+
+    // …
+});
+```
 
 
 ### Before Route Middlewares
@@ -269,6 +356,37 @@ Note: If the route handling function has `exit()`ed the run callback won't be ru
 Use `X-HTTP-Method-Override` to override the HTTP Request Method. Only works when the original Request Method is `POST`. Allowed values for `X-HTTP-Method-Override` are `PUT`, `DELETE`, or `PATCH`.
 
 
+### Subfolder support
+
+Out-of-the box `bramus/router` will run in any (sub)folder you place it into … no adjustments to your code are needed. You can freely move your _entry script_ `index.php` around, and the router will automatically adapt itself to work relatively from the current folder's path by mounting all routes onto that __basePath__.
+
+Say you have a server hosting the domain `www.example.org` using `public_html/` as its document root, with this little _entry script_ `index.php`:
+
+```php
+$router->get('/', function() { echo 'Index'; });
+$router->get('/hello', function() { echo 'Hello!'; });
+```
+
+- If your were to place this file _(along with its accompanying `.htaccess` file or the like)_ at the document root level (e.g. `public_html/index.php`), `bramus/router` will mount all routes onto the domain root (e.g. `/`) and thus respond to `https://www.example.org/` and `https://www.example.org/hello`.
+
+- If you were to move this file _(along with its accompanying `.htaccess` file or the like)_ into a subfolder (e.g. `public_html/demo/index.php`), `bramus/router` will mount all routes onto the current path (e.g. `/demo`) and thus repsond to `https://www.example.org/demo` and `https://www.example.org/demo/hello`. There's **no** need for `$router->mount(…)` in this case.
+
+#### Disabling subfolder support
+
+In case you **don't** want `bramus/router` to automatically adapt itself to the folder its being placed in, it's possible to manually override the _basePath_ by calling `setBasePath()`. This is necessary in the _(uncommon)_ situation where your _entry script_ and your _entry URLs_ are not tightly coupled _(e.g. when the entry script is placed into a subfolder that does not need be part of the URLs it responds to)_.
+
+```php
+// Override auto base path detection
+$router->setBasePath('/');
+
+$router->get('/', function() { echo 'Index'; });
+$router->get('/hello', function() { echo 'Hello!'; });
+
+$router->run();
+```
+
+If you were to place this file into a subfolder (e.g. `public_html/some/sub/folder/index.php`), it will still mount the routes onto the domain root (e.g. `/`) and thus respond to `https://www.example.org/` and `https://www.example.org/hello` _(given that your `.htaccess` file – placed at the document root level – rewrites requests to it)_
+
 ## Integration with other libraries
 
 Integrate other libraries with `bramus/router` by making good use of the `use` keyword to pass dependencies into the handling functions.
@@ -310,7 +428,11 @@ $router->put('/movies/(\d+)', function($id) {
 
 ## A note on making HEAD requests
 
-When making `HEAD` requests all output will be buffered to prevent any content trickling into the response body, as defined in [RFC2616 (Hypertext Transfer Protocol -- HTTP/1.1)](http://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html#sec9.4): _The HEAD method is identical to GET except that the server MUST NOT return a message-body in the response. The metainformation contained in the HTTP headers in response to a HEAD request SHOULD be identical to the information sent in response to a GET request._
+When making `HEAD` requests all output will be buffered to prevent any content trickling into the response body, as defined in [RFC2616 (Hypertext Transfer Protocol -- HTTP/1.1)](http://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html#sec9.4):
+
+> The HEAD method is identical to GET except that the server MUST NOT return a message-body in the response. The metainformation contained in the HTTP headers in response to a HEAD request SHOULD be identical to the information sent in response to a GET request. This method can be used for obtaining metainformation about the entity implied by the request without transferring the entity-body itself. This method is often used for testing hypertext links for validity, accessibility, and recent modification.
+
+To achieve this, `bramus/router` but will internally re-route `HEAD` requests to their equivalent `GET` request and automatically suppress all output.
 
 
 ## Unit Testing & Code Coverage
